@@ -1,0 +1,2 @@
+﻿
+\n# Ignore large/local artifacts\nvenv/\nmodel/*.pth\nImages/images/**\n*.ipynb_checkpoints/**\n__pycache__/\n
