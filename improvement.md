@@ -1,137 +1,352 @@
-# 改善・工夫点の記録
+# Jupyter Notebook (.ipynb) 効率的な修正方法
 
-このファイルでは、エラー対処や上手くいった工夫点を記録し、次に活かせるようにします。
+## 背景
 
-## 環境構築時の工夫
+Jupyter Notebookファイル（.ipynb）はJSON形式で保存されており、直接編集する際にいくつかの課題があります。
 
-### ライブラリの依存関係
-- **問題**: PyTorch 2.9.0（CPU版）をインストールしたが、GPU版が必要だった
-- **解決**: GPU版のPyTorch（2.6.0+cu124）に切り替え
-- **コマンド**: `pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124`
-- **教訓**: CUDAバージョンとPyTorchの互換性を確認してからインストール
+## 課題
 
-### ライブラリの不足
-- **問題**: process_data.ipynbでpandas, scikit-learn, opencv-pythonが不足
-- **解決**: 一括インストールしてrequirements.txtを更新
-- **教訓**: 使用するライブラリは最初にrequirements.txtに記載しておく
+1. **edit_notebookツールの制約**
+   - 文字列の完全一致が必要
+   - インデントや改行の微妙な違いでマッチング失敗
+   - エスケープ文字の扱いが複雑
 
-## データ前処理での工夫
+2. **search_replaceツールの制約**
+   - .ipynbファイルには使用不可（専用ツール使用が必要）
 
-### CVAT XMLのパース
-- **決定**: polygonとellipseを別々に処理
-- **理由**: eyelid_caruncle_seg_0-2000.xmlはpolygon、obb_iris_pupil_1-3000.xmlはellipse
-- **工夫**: `parse_cvat_xml`関数で統一的な処理を実装
+3. **JSONの複雑な構造**
+   - セルごとに`source`が配列形式
+   - 各行が個別の文字列要素
+   - メタデータや出力情報も含まれる
 
-### 画像座標の正規化
-- **問題**: 元画像のサイズが異なる（956×956、979×979など）
-- **解決**: 640×640に統一する際に正規化して座標を変換
-- **関数**: `rasterize_polygon`, `rasterize_ellipse`で統一処理
+## 推奨される効率的な修正方法
 
-### 楕円のラスタライズ
-- **決定**: PILのImageDrawを使用
-- **理由**: OpenCVよりも楕円の描画が綺麗
-- **関数**: `rasterize_ellipse`で実装
+### 方法1: Pythonスクリプトによる直接JSON編集（最も確実）
 
-### データの一貫性保証
-- **問題**: 瞳孔が虹彩の外に出ることがある
-- **解決**: `E_pupil ← E_pupil ∩ E_iris`を強制
-- **実装**: `mask_pupil = np.bitwise_and(mask_pupil, mask_iris)`
-
-### GroupKFoldによる患者分割
-- **重要性**: 同一患者がtrain/valを跨ぐとリークになる
-- **実装**: scikit-learnの`GroupKFold(n_splits=5, groups=patient_id)`
-- **確認**: 各foldで患者重複をチェック
-
-## ファイル構造の工夫
-
-### 保存先の明確化
-- **問題**: 保存先が不明確
-- **解決**: process_data.ipynbの冒頭に詳細な説明を記載
-- **場所**: 
-  - ラベル画像: `Images/labels_seg/`, `Images/labels_obb/`
-  - メタデータ: プロジェクトルート（CSV, JSON）
-
-### ノートブックの構造
-- **方針**: 各処理を独立したセルに分離
-- **理由**: デバッグが容易、再実行が可能
-- **構成**: 関数定義 → データ読み込み → 処理実行 → 保存
-
-## vis/occの定義修正（重要）
-
-### 指摘と対応（2025-01-XX）
-- **ユーザー指摘**: 「眼瞼のセグが眼瞼縁に囲まれた部分なので、眼瞼がない部分」
-- **確認結果**: 眼瞼マスクの定義が逆だった！修正が必要
-- **対応**: process_data.ipynbのコードを修正、experiment_plan.mdの定義を更新
-
-### 眼瞼マスクの正しい定義
-- **眼瞼マスク** = **眼瞼縁に囲まれた部分** = **眼球の露出部分**
-- つまり：
-  - 眼瞼マスクの中 = **見えている部分**（visible）
-  - 眼瞼マスクの外 = **隠れている部分**（occluded）
-
-### 修正前（誤り）
 ```python
-iris_vis = iris ∩ (NOT eyelid)  # 誤り
-iris_occ = iris ∩ eyelid        # 誤り
+import json
+
+# ノートブックを読み込み
+with open('notebook.ipynb', 'r', encoding='utf-8') as f:
+    notebook = json.load(f)
+
+# セルを検索して修正
+for i, cell in enumerate(notebook['cells']):
+    if cell['cell_type'] == 'code':
+        source = cell['source']
+        
+        # 特定の文字列を含む行を検索して修正
+        new_source = []
+        for line in source:
+            if '修正対象の文字列' in line:
+                # 行を置換
+                new_source.append(line.replace('古い値', '新しい値'))
+            else:
+                new_source.append(line)
+        
+        cell['source'] = new_source
+
+# 保存
+with open('notebook.ipynb', 'w', encoding='utf-8') as f:
+    json.dump(notebook, f, ensure_ascii=False, indent=1)
 ```
 
-### 修正後（正しい）
-```python
-iris_vis = iris ∩ eyelid        # 虹彩 ∩ 眼瞼 = 見える
-iris_occ = iris ∩ (NOT eyelid)  # 虹彩 ∩ (NOT 眼瞼) = 隠れている
+**利点:**
+- 確実に修正可能
+- 複雑な条件分岐も対応可能
+- 複数セルの一括修正も容易
+- バックアップが簡単（元ファイルを自動保存可）
+
+**欠点:**
+- 一時的なスクリプトファイルが必要
+- JSON構造の理解が必要
+
+### 方法2: grepで検索 → セル番号特定 → edit_notebook
+
+```bash
+# 1. 該当箇所を含むセルを特定
+grep -n "検索文字列" notebook.ipynb
+
+# 2. execution_countを確認
+grep -B5 "検索文字列" notebook.ipynb | grep execution_count
+
+# 3. edit_notebookツールで修正（ただし文字列の完全一致が必要）
 ```
 
-### 数学的表現の修正
-- `iris_vis = E_iris ∩ M_lid_dil` (交集合) - 虹彩のうち眼瞼マスクの中
-- `iris_occ = E_iris \ M_lid_dil` (差集合) - 虹彩のうち眼瞼マスクの外
+**利点:**
+- 既存ツールの組み合わせ
+- セル番号が明確
 
-### 膨張処理の削除（2025-01-XX）
-- **削除理由**: ピクセル単位で厳密にアノテーションしているため不要
-- **削除内容**:
-  - `mask_lid_dil`の生成コードを削除
-  - vis/occの計算で`mask_lid`を直接使用
-  - `DILATION_SIZE`設定を削除
-  - experiment_plan.mdの膨張に関する記述を削除
-- **教訓**: アノテーションの精度に合わせて処理を決定
+**欠点:**
+- 文字列マッチングが厳密
+- 複数箇所の修正には不向き
 
-## 次回改善すべき点
+### 方法3: read_file → 全体構造把握 → Pythonスクリプト
 
-- [ ] 画像リサイズ時の処理（現在はラスター化のみ、元画像のリサイズも必要か？）
-- [ ] メモリ効率（大量データ処理時のメモリ使用量）
-- [ ] 並列処理（1000件以上の画像処理で時間短縮）
-- [ ] エラーハンドリング（アノテーション欠落時の処理）
-- [ ] データ可視化（生成したラベルの確認用）
-- [x] vis/occの定義を明確化
-- [x] 膨張処理を削除
+今回採用した方法：
 
-## 参考にした情報
+1. `grep`で修正箇所を特定
+2. `read_file`で該当セル周辺を確認
+3. Pythonスクリプトを作成してJSON編集
+4. スクリプト実行後、一時ファイル削除
 
-- CVAT XMLフォーマットの仕様
-- GroupKFoldの公式ドキュメント
-- PIL/Pillowでの楕円描画方法
+## 実例: train3.ipynbの修正
 
+### 問題
+```python
+pos_w = torch.tensor([3.0, 3.0, 3.0], device=device)
+criterion2 = EdgeBCELossWithNHWC(pos_weight=pos_w)
+```
+↓
+```python
+# pos_weightをNoneに設定（次元の問題を回避）
+criterion2 = EdgeBCELossWithNHWC(pos_weight=None)
+```
 
-## ノートブック運用の反省（Run All 安定化）
+### 解決手順
 
-### 基本原則：定義されていない変数を参照しない
-- **基本原則**: セル内で参照する変数・クラス・関数は、そのセルより前で必ず定義されていること
-- **Run All 対応**: すべて実行時にエラーが発生しないよう、セルの順序と依存関係を厳密に管理
+```python
+# fix_notebook.py
+import json
 
-### 失敗事例と教訓
-- **失敗事例**: モデル初期化セル（`model1 = Method1_EyelidEllipse().to(device)`）を、モデルクラス定義・エイリアス定義より前に配置し、`NameError` を誘発
-- **原因**: 
-  - セル新設時に旧セルの削除・無効化を失念
-  - 定義されていない変数（`Method1_EyelidEllipse`）を参照していた
-  - セル間の依存関係を意識せずに配置
-- **対応**: 
-  - 定義より前の初期化セルを削除（セル内容を空化）
-  - 初期化セルをエイリアス定義（Cell 19）の後（Cell 27）に配置
-  - セルの順序を「定義 → 初期化 → 学習 → 推論」に統一
-- **教訓**: 
-  1. **新セルを作る場合は、必ず旧セルを削除/無効化する**
-  2. **定義されていない変数・クラス・関数を参照しない**
-  3. **セル間の依存関係を明確にし、実行順序を保証する**
-  4. **Run All で動作することを前提に設計する**
-  5. **一箇所修正したら、他の該当箇所がないか必ず確認する（grepで全検索）**
-  6. **データファイルの存在確認を忘れずに行う（特にラベルファイル）**
+with open('train3.ipynb', 'r', encoding='utf-8') as f:
+    notebook = json.load(f)
 
+for i, cell in enumerate(notebook['cells']):
+    if cell['cell_type'] == 'code' and cell.get('execution_count') == 10:
+        source = cell['source']
+        new_source = []
+        skip_next = False
+        
+        for line in source:
+            if 'pos_w = torch.tensor' in line:
+                new_source.append("    # pos_weightをNoneに設定（次元の問題を回避）\n")
+                new_source.append("    criterion2 = EdgeBCELossWithNHWC(pos_weight=None)\n")
+                skip_next = True
+            elif skip_next and 'criterion2 = EdgeBCELossWithNHWC' in line:
+                skip_next = False
+            else:
+                new_source.append(line)
+        
+        cell['source'] = new_source
+        print(f"セル{i}を修正しました")
+        break
+
+with open('train3.ipynb', 'w', encoding='utf-8') as f:
+    json.dump(notebook, f, ensure_ascii=False, indent=1)
+```
+
+実行:
+```bash
+python fix_notebook.py
+rm fix_notebook.py  # 修正後は削除
+```
+
+## ベストプラクティス
+
+1. **必ず検証**
+   - 修正前に`grep`で該当箇所を確認
+   - 修正後も`grep`で結果を確認
+
+2. **セル特定の優先順位**
+   ```python
+   # 優先度1: execution_count（最も確実）
+   if cell.get('execution_count') == 10:
+   
+   # 優先度2: セル内の特徴的な文字列
+   if any('特徴的な関数名' in line for line in cell['source']):
+   
+   # 優先度3: セルのインデックス（変更に弱い）
+   if i == 9:  # 0-indexed
+   ```
+
+3. **安全な修正**
+   ```python
+   # バックアップを作成
+   import shutil
+   shutil.copy('notebook.ipynb', 'notebook.ipynb.bak')
+   
+   # 修正処理
+   # ...
+   
+   # 検証後にバックアップ削除
+   os.remove('notebook.ipynb.bak')
+   ```
+
+4. **JSON構造の保持**
+   - `indent=1`を使用（可読性と差分管理のバランス）
+   - `ensure_ascii=False`で日本語を保持
+   - 出力（`outputs`）やメタデータは触らない
+
+## 避けるべき方法
+
+❌ **手動でJSONを編集**
+- 構文エラーのリスク
+- カンマやブラケットのミス
+
+❌ **正規表現による複雑な置換**
+- エスケープが複雑
+- 誤マッチのリスク
+
+❌ **全文一致による edit_notebook**
+- セル全体をコピペする必要がある
+- インデントの違いで失敗しやすい
+
+## まとめ
+
+Jupyterノートブックの修正には：
+1. **小規模修正**: `edit_notebook`ツール（文字列完全一致が可能な場合）
+2. **複雑な修正**: Pythonスクリプト + JSON直接編集（推奨）
+3. **大規模修正**: 複数セルの場合は必ずPythonスクリプト
+
+**今回の教訓:**
+- edit_notebookの文字列マッチングは厳密すぎる
+- JSON直接編集が最も確実で柔軟
+- 一時スクリプトの作成・削除は効率的なワークフロー
+
+## .gitignoreとgit追跡の重要な注意点
+
+### 問題：.gitignoreが効かないケース
+
+.gitignoreに`model/`や`Images/`を追加しても、**既にgit追跡されているファイルには効果がありません**。
+
+```bash
+# .gitignoreの内容
+model/
+Images/
+```
+
+しかし`git status`で表示される → **既に追跡されているため**
+
+### 根本的な解決方法
+
+```bash
+# 1. git追跡から削除（ファイル自体は残す）
+git rm -r --cached model/
+git rm -r --cached Images/
+
+# 2. コミット
+git commit -m "Remove model/ and Images/ from git tracking"
+
+# 3. プッシュ
+git push
+
+# 以降、.gitignoreが正常に機能する
+```
+
+### なぜこれが必要か
+
+- `.gitignore`：**新規ファイルの追跡を防ぐ**（予防）
+- `git rm --cached`：**既存の追跡を解除する**（治療）
+
+両方が必要です。
+
+### GitHub容量制限の問題
+
+- 単一ファイル上限：100MB
+- model/method3_fold0_best.pth：214.47MB → **プッシュ不可**
+- 解決策：
+  1. `git rm --cached model/` で追跡解除
+  2. Git LFS（Large File Storage）導入（別途設定必要）
+  3. または model/ を完全に除外
+
+### 推奨対応（今回のケース）
+
+```bash
+# 1. 大容量ファイルを追跡から除外
+git rm -r --cached model/
+git rm -r --cached Images/
+
+# 2. .gitignoreが既に設定済みであることを確認
+# （model/とImages/が既に記載されている）
+
+# 3. コミット
+git commit -m "Remove large files from git tracking (.gitignore already set)"
+
+# 4. プッシュ（以降は軽量ファイルのみ）
+git push
+```
+
+### 重要な教訓
+
+1. **プロジェクト開始時に.gitignoreを設定**すること
+2. **大容量ファイルは絶対にコミットしない**（後から除外が大変）
+3. **既に追跡されているファイルは`git rm --cached`で除外が必要**
+
+## Method2のエッジギャップ分析（2025-11-03調査結果）
+
+### 調査の背景
+
+Method2では`thickness=3px`でエッジを生成して学習していますが、推論時のギャップ発生が懸念されました。1/3/5/7pxでのギャップ発生率を比較調査しました。
+
+### 当初の誤った結果（スケルトン化ベース）
+
+スケルトン化（`skimage.morphology.skeletonize`）を用いた端点検出で以下の結果が出ました：
+
+| 厚み | ギャップ発生 | 割合 |
+|------|-------------|------|
+| 1px  | 6件         | 0.3% |
+| 3px  | 22件        | 1.1% |
+| 5px  | 44件        | 2.2% |
+| 7px  | 50件        | 2.5% |
+
+**問題点**：厚いエッジほどギャップが増える矛盾した結果
+
+### 根本原因の発見
+
+詳細調査により、以下が判明：
+
+1. **元のGTマスクは99.8%が完全に閉じた輪郭**（問題なし）
+2. **`drawContours(thickness=3/5/7)`で生成されたエッジも100%完全につながっている**
+3. **しかし`skeletonize()`処理が閉じたリング状エッジに対して意図しない端点を生成**
+   - 特に「水平に長く垂直に薄い」形状（眼角部など）で不安定
+   - 本来は端点0個（閉じたループ）のはずが、端点2個を誤生成
+   - 結果として357px等の「架空のギャップ」を検出
+
+### 正しい判定方法と結果
+
+**スケルトン化を使わず、エッジの連結性を直接チェック**する方法に変更：
+
+```python
+def has_gap_proper(edge_bin):
+    """エッジピクセルの隣接数を直接カウント。
+    端点（neighbor==1）が2個以上あればギャップと判定。
+    """
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    neighbor_count = cv2.filter2D(edge_u8, ...) - edge_u8
+    endpoints = (edge_u8 > 0) & (neighbor_count == 1)
+    # 画像境界を除外して内部の端点のみカウント
+    return np.count_nonzero(interior_endpoints) >= 2
+```
+
+**修正後の正しい結果（全1992件）**：
+
+| 厚み | ギャップ発生 | 割合 |
+|------|-------------|------|
+| **1px**  | **3件**     | **0.2%** |
+| **3px**  | **0件**     | **0.0%** ← 完璧！|
+| **5px**  | 0件         | 0.0% |
+| **7px**  | 0件         | 0.0% |
+
+### 結論
+
+1. **元のGTマスク品質は極めて高い**（99.8%が閉じた輪郭）
+2. **thickness=3pxの太線化は完璧に機能**：残り0.2%の真のギャップも完全解消
+3. **5px/7pxは不要**：3pxで既に完璧、太すぎると境界精度が低下するだけ
+4. **スケルトン化は不適切**：ギャップ判定には使うべきでない
+   - 閉じたリング状の形状で誤検出が多発
+   - 特に「水平に長く垂直に薄い」領域で不安定
+
+### 推論時の処理
+
+- **Eyelid**: エッジ→`bin_edge_to_filled()`で面化
+  - 25×25カーネル×6回のモルフォロジカルクロージングで最大150px程度の欠損まで補完
+  - 3pxの太線化とは独立した、より強力なギャップ補正
+- **Iris/Pupil**: エッジ→`cv2.fitEllipse()`で楕円フィット
+  - エッジが綺麗なのでRANSAC不要、最小二乗法で高速・高精度
+
+### 教訓
+
+- **ギャップ判定にスケルトン化を使用しない**
+- **エッジの連結性は直接（隣接ピクセル数）チェック**
+- **形状の特性（細長い、くびれがある等）を考慮したアルゴリズム選択が重要**
