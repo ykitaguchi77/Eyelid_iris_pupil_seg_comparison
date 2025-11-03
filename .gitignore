@@ -1,8 +1,28 @@
-﻿model/
+﻿# モデルファイル（大容量）
+model/
+
+# 画像データ（大容量）
 Images/
-venv/ 
+
+# キャッシュ・進捗ファイル
+cache/
+results/
+
+# Python環境
+venv/
+__pycache__/
+
+# 生成ファイル
 image_metadata.csv
 fold_indices.json
 patient_list.json
-__pycache__/
 
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# その他
+*.pyc
+*.pyo
+*.pyd
+.DS_Store
+Thumbs.db
