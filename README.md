@@ -1,129 +1,405 @@
-# Eyelid, Iris, Pupil Segmentation Comparison
+# Eyelid_Iris_pupil_seg_comparison
 
-眼瞼・虹彩・瞳孔のセグメンテーション手法の比較実験プロジェクト
+眼部画像セグメンテーションの3つの手法（Method1/2/3）を比較するプロジェクトです。
+CVAT XMLアノテーションから学習用ラベルを生成し、U-Netベースの3つの異なるアプローチでセグメンテーションを実行します。
 
-## 環境セットアップ
+## 📋 目次
 
-### 1. 仮想環境の作成とアクティベート
+- [プロジェクト概要](#プロジェクト概要)
+- [セットアップ](#セットアップ)
+- [使い方](#使い方)
+- [データ前処理（process_data.ipynb）](#データ前処理process_dataipynb)
+- [モデル学習（train.ipynb）](#モデル学習trainipynb)
+- [ディレクトリ構造](#ディレクトリ構造)
+- [評価指標](#評価指標)
 
-```powershell
+---
+
+## 🎯 プロジェクト概要
+
+このプロジェクトは、眼部画像における**眼瞼（Eyelid）**、**虹彩（Iris）**、**瞳孔（Pupil）**のセグメンテーションを行います。
+
+### 3つのアプローチ
+
+| 手法 | 説明 | アーキテクチャ |
+|------|------|----------------|
+| **Method1** | 眼瞼セグメンテーション + 虹彩・瞳孔の楕円パラメータ回帰 | U-Net + 回帰ヘッド |
+| **Method2** | エッジセグメンテーション（3チャネル: 眼瞼縁、虹彩縁、瞳孔縁） | U-Net + エッジ検出 |
+| **Method3** | 6クラス領域セグメンテーション（背景、結膜、可視虹彩、遮蔽虹彩、可視瞳孔、遮蔽瞳孔） | U-Net + マルチクラス分類 |
+
+### 6クラス定義
+
+```
+0: background   = lid外 ∩ iris外 ∩ pupil外
+1: conj         = lid内 ∩ iris外 ∩ pupil外（結膜露出部）
+2: iris_vis     = lid内 ∩ iris内 ∩ pupil外（可視虹彩）
+3: iris_occ     = lid外 ∩ iris内 ∩ pupil外（遮蔽虹彩）
+4: pupil_vis    = lid内 ∩ iris内 ∩ pupil内（可視瞳孔）
+5: pupil_occ    = lid外 ∩ iris内 ∩ pupil内（遮蔽瞳孔）
+```
+
+---
+
+## ⚙️ セットアップ
+
+### 必要な環境
+
+- Python 3.8+
+- CUDA対応GPU（推奨: RTX 3080以上）
+- PyTorch 2.0+（CUDA版）
+
+### インストール
+
+```bash
 # 仮想環境の作成
 python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# 仮想環境のアクティベート（PowerShell）
-.\venv\Scripts\Activate.ps1
-
-# 仮想環境のアクティベート（Command Prompt）
-venv\Scripts\activate.bat
-```
-
-### 2. 依存パッケージのインストール
-
-```powershell
-# 仮想環境がアクティベートされていることを確認
-pip install -r requirements.txt
-```
-
-### 3. PyTorchの確認
-
-```powershell
-python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'CUDA available: {torch.cuda.is_available()}')"
-```
-
-**注意**: このプロジェクトは**GPU版のPyTorch**を使用します。CPU版の場合は、以下のコマンドでGPU版に更新してください：
-```powershell
-.\venv\Scripts\Activate.ps1
-pip uninstall torch torchvision -y
+# 必要なライブラリのインストール
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install opencv-python numpy pandas scikit-learn scikit-image matplotlib pillow tqdm
 ```
 
-## プロジェクト構成
+---
+
+## 🚀 使い方
+
+### ステップ1: データ前処理
+
+まず、`process_data.ipynb`を実行してアノテーションからラベルを生成します。
+
+```bash
+# Jupyter Notebookを起動
+jupyter notebook process_data.ipynb
+```
+
+**重要**: このノートブックは**上から順番に実行**してください。「Run All」を推奨します。
+
+### ステップ2: モデル学習
+
+次に、`train.ipynb`で3つの手法を学習します。
+
+```bash
+jupyter notebook train.ipynb
+```
+
+学習したい手法を選択するには、**カラム7**のセルで以下のフラグを設定します：
+
+```python
+# 学習フラグ（必要なものだけTrueでOK）
+TRAIN_METHOD1 = True   # 眼瞼セグメンテーション + 楕円パラメータ回帰
+TRAIN_METHOD2 = True   # エッジセグメンテーション
+TRAIN_METHOD3 = True   # 6クラス領域セグメンテーション
+```
+
+---
+
+## 📊 データ前処理（process_data.ipynb）
+
+### 処理の流れ
+
+1. **CVAT XMLファイルの読み込み**
+   - `Images/eyelid_caruncle_seg_0-2000.xml`（眼瞼・涙丘）
+   - `Images/obb_iris_pupil_1-3000.xml`（虹彩・瞳孔）
+
+2. **患者IDの抽出**
+   - ファイル名から患者IDを抽出（例: `1-20141126-38-091804_...jpg` → 患者ID=1）
+
+3. **画像・ラベルの処理**
+   - 512×512へのリサイズ
+   - ラベル生成（眼瞼マスク、虹彩マスク、瞳孔マスク、6クラスラベル）
+
+4. **楕円の回転対応**
+   - CVATのellipse回転属性（`rotation`）に対応
+   - 傾いた虹彩・瞳孔も正確にラスタライズ
+
+5. **GroupKFold分割**
+   - 患者IDベースの5-fold分割
+   - 同一患者の画像がTrain/Valに跨らないように分割
+
+### 生成されるファイル
+
+#### ラベル画像
+
+**`Images/labels_seg/`**
+- `*_mask_lid.png` - 眼瞼マスク（結膜露出部）
+- `*_iris_vis.png` - 可視虹彩
+- `*_iris_occ.png` - 遮蔽虹彩
+- `*_pupil_vis.png` - 可視瞳孔
+- `*_pupil_occ.png` - 遮蔽瞳孔
+- `*_sixcls.png` - **6クラス統合ラベル（カラー画像）**
+
+**`Images/labels_obb/`**
+- `*_mask_iris.png` - 虹彩マスク（完全楕円、回転対応✅）
+- `*_mask_pupil.png` - 瞳孔マスク（完全楕円、回転対応✅）
+
+#### メタデータ（プロジェクトルート）
+
+- `fold_indices.json` - 5-fold GroupKFold分割情報
+- `image_metadata.csv` - 画像メタデータ（image_id, filename, patient_id, original_size）
+- `patient_list.json` - 患者IDリスト
+
+### 実行時の注意点
+
+⚠️ **必ず「Run All」または上から順番に実行してください**
+
+途中のセルで既存ラベルの削除処理があります。個別実行する場合は依存関係に注意してください。
+
+---
+
+## 🤖 モデル学習（train.ipynb）
+
+### ノートブック構成
+
+train.ipynbは**カラム（セクション）**で構成されています：
+
+| カラム | 内容 |
+|--------|------|
+| **カラム1** | 環境確認・基本設定（GPU確認、パス設定、ハイパーパラメータ） |
+| **カラム2** | データセット & データローダ（sixcls.pngの読み込み、データ拡張） |
+| **カラム3** | U-Net（Method1/2/3）定義（VGG16エンコーダ + デコーダ） |
+| **カラム4** | 損失関数・レンダリング関数（Dice Loss、楕円レンダリング） |
+| **カラム5** | Method2用ラベル生成・評価補助（エッジ抽出、楕円フィッティング） |
+| **カラム6** | Method2の教師エッジ生成（オンザフライ） |
+| **カラム7** | 学習ループ（Optimizer、Early Stopping） |
+| **カラム8** | 学習実行（学習ループの実行） |
+| **カラム9** | 評価ロジック（Eyelid/Iris/Pupil Dice計算） |
+| **カラム10** | 推論・可視化（GT/Method1/2/3の並列比較） |
+| **カラム11** | 全クラス可視化（Method3の6クラス予測） |
+
+### ハイパーパラメータ
+
+```python
+IMAGE_HEIGHT = 512
+IMAGE_WIDTH  = 512
+BATCH_SIZE   = 16
+NUM_EPOCHS   = 50
+LEARNING_RATE = 1e-3
+WEIGHT_DECAY  = 1e-4
+EARLY_STOP_PATIENCE = 30
+```
+
+### Method1: 眼瞼セグメンテーション + 楕円パラメータ回帰
+
+**アーキテクチャ:**
+```
+入力画像 (3, 512, 512)
+    ↓
+VGG16エンコーダ
+    ↓
+U-Netデコーダ (64ch)
+    ├─→ 眼瞼セグメンテーションヘッド (1ch logits)
+    ├─→ 虹彩楕円回帰ヘッド (5パラメータ: cx,cy,a,b,θ)
+    └─→ 瞳孔楕円回帰ヘッド (5パラメータ)
+```
+
+**損失関数:**
+- 眼瞼: BCEWithLogitsLoss + Dice Loss
+- 虹彩/瞳孔: 楕円パラメータ → レンダリング → BCEWithLogitsLoss
+
+### Method2: エッジセグメンテーション
+
+**アーキテクチャ:**
+```
+入力画像 (3, 512, 512)
+    ↓
+VGG16エンコーダ
+    ↓
+U-Netデコーダ (64ch)
+    ↓
+エッジセグメンテーションヘッド (3ch logits)
+    ├─→ ch0: 眼瞼エッジ
+    ├─→ ch1: 虹彩エッジ（眼瞼内のみ）
+    └─→ ch2: 瞳孔エッジ（眼瞼内のみ）
+```
+
+**損失関数:**
+- EdgeBCELossWithNHWC（pos_weight=3.0でエッジピクセルに重み）
+
+**特徴:**
+- 教師ラベルはオンザフライで生成（thickness=3の太いエッジ）
+- エッジから領域への変換: モルフォロジカルクロージング（25×25カーネル、6iterations）
+- 楕円フィッティング: cv2.fitEllipse（エッジが綺麗なので高速・高精度）
+
+### Method3: 6クラス領域セグメンテーション
+
+**アーキテクチャ:**
+```
+入力画像 (3, 512, 512)
+    ↓
+VGG16エンコーダ
+    ↓
+U-Netデコーダ (64ch)
+    ↓
+6クラスセグメンテーションヘッド (6ch logits)
+```
+
+**損失関数:**
+- Multi-class Dice Loss（各クラスのDiceを平均）
+
+**後処理（評価時）:**
+1. クラス2,3（虹彩領域）からマスク合成
+2. エッジ抽出（thickness=3）
+3. RANSAC + 最小二乗法で楕円フィッティング（部分エッジにも対応）
+4. 楕円マスク化してDice計算
+
+### 学習の実行
+
+**カラム7**で学習フラグを設定してからセルを実行：
+
+```python
+TRAIN_METHOD1 = True   # Method1を学習
+TRAIN_METHOD2 = True   # Method2を学習
+TRAIN_METHOD3 = True   # Method3を学習
+```
+
+学習済みモデルは`model/`ディレクトリに保存されます：
+- `method1_fold0_best.pth`
+- `method2_fold0_best.pth`
+- `method3_fold0_best.pth`
+
+### 評価の実行
+
+**カラム9**で評価フラグを設定：
+
+```python
+LOAD_PRETRAINED = True  # 学習済みモデルをロード
+EVALUATE_METHOD1 = True
+EVALUATE_METHOD2 = True
+EVALUATE_METHOD3 = True
+```
+
+セルを実行すると、Dice係数（Eyelid/Iris/Pupil）が計算されます。
+
+**評価指標の定義（統一）:**
+
+| 対象 | GroundTruth | Method1 | Method2 | Method3 |
+|------|-------------|---------|---------|---------|
+| **Eyelid** | mask_lid | sigmoid(logits) | エッジ→塗りつぶし | クラス1∪2∪4 |
+| **Iris** | mask_iris | 楕円パラメータ | エッジ→楕円 | クラス2∪3→エッジ→RANSAC |
+| **Pupil** | mask_pupil | 楕円パラメータ | エッジ→楕円 | クラス4∪5→エッジ→RANSAC |
+
+### 可視化
+
+**カラム10**: GT/Method1/2/3の並列比較（3行×5列レイアウト）
+
+```python
+# ランダムに3サンプルを可視化
+visualize_compare(val_ds[i], device)
+```
+
+**カラム11**: Method3の6クラス予測可視化
+
+```python
+# 4枚表示: Original | GroundTruth | Prediction | Ellipse Fitting
+visualize_method3_all_classes(sample, device, show_stats=True)
+```
+
+---
+
+## 📁 ディレクトリ構造
 
 ```
 Eyelid_Iris_pupil_seg_comparison/
 ├── Images/
-│   ├── images/                      # 元画像 (4467枚)
-│   ├── eyelid_caruncle_seg_0-2000.xml  # 眼瞼・涙丘セグメンテーションアノテーション (CVAT形式)
-│   ├── obb_iris_pupil_1-3000.xml      # 虹彩・瞳孔OBBアノテーション (CVAT形式)
-│   ├── labels_obb/                   # OBBラベル
-│   └── labels_seg/                    # セグメンテーションラベル
-├── model/                            # 学習済みモデルの保存先
-├── venv/                             # Python仮想環境
-├── experimet_plan.md                 # 実験計画書
-├── process_data.ipynb                # データ前処理ノートブック
-├── train.ipynb                       # 学習ノートブック
-├── crossvalidation.ipynb             # 交差検証ノートブック
-├── requirements.txt                  # Python依存パッケージ一覧
-└── README.md                         # このファイル
+│   ├── images/                          # 元画像（*.jpg）
+│   ├── labels_seg/                      # 眼瞼系ラベル
+│   │   ├── *_mask_lid.png              # 眼瞼マスク
+│   │   ├── *_iris_vis.png              # 可視虹彩
+│   │   ├── *_iris_occ.png              # 遮蔽虹彩
+│   │   ├── *_pupil_vis.png             # 可視瞳孔
+│   │   ├── *_pupil_occ.png             # 遮蔽瞳孔
+│   │   └── *_sixcls.png                # 6クラス統合ラベル（カラー）
+│   ├── labels_obb/                      # 虹彩・瞳孔ラベル
+│   │   ├── *_mask_iris.png             # 虹彩マスク（完全楕円）
+│   │   └── *_mask_pupil.png            # 瞳孔マスク（完全楕円）
+│   ├── eyelid_caruncle_seg_0-2000.xml  # CVAT XML（眼瞼・涙丘）
+│   └── obb_iris_pupil_1-3000.xml       # CVAT XML（虹彩・瞳孔）
+├── model/                               # 学習済みモデル
+│   ├── method1_fold0_best.pth
+│   ├── method2_fold0_best.pth
+│   └── method3_fold0_best.pth
+├── process_data.ipynb                   # データ前処理スクリプト
+├── train.ipynb                          # 学習・評価スクリプト
+├── fold_indices.json                    # 5-fold分割情報
+├── image_metadata.csv                   # 画像メタデータ
+├── patient_list.json                    # 患者IDリスト
+└── README.md                            # このファイル
 ```
 
-## 実験計画概要
+---
 
-3つの手法を比較します：
+## 📈 評価指標
 
-1. **方法1**: 眼瞼セグメンテーション（1クラス）＋ 虹彩・瞳孔楕円回帰
-2. **方法2**: 縁セグメンテーション（補足実験）
-3. **方法3**: 5クラス領域セグメンテーション（主要比較手法）
+### Dice係数（Sørensen–Dice coefficient）
 
-詳細は `experimet_plan.md` を参照してください。
+セグメンテーション精度の評価には**Dice係数**を使用します：
 
-## 実行手順
-
-### 1. データ前処理
-```powershell
-# Jupyter Notebook を起動
-.\venv\Scripts\Activate.ps1
-jupyter notebook
-
-# process_data.ipynb を開いて実行
+```
+Dice = (2 × |Prediction ∩ GroundTruth|) / (|Prediction| + |GroundTruth|)
 ```
 
-### 2. モデル学習
-```powershell
-# train.ipynb を開いて実行
-# 3つの手法について学習を実行
+- 範囲: 0（一致なし）～ 1（完全一致）
+- 各手法について、Eyelid/Iris/Pupilの3つのDice係数を計算
+
+### 評価結果の例
+
+```
+=== Validation Dice (mean over samples) ===
+       Method1 Method2 Method3
+Eyelid  0.9893  0.9638  0.9854
+Iris    0.9245  0.9472  0.9705
+Pupil   0.8063  0.9241  0.9576
 ```
 
-### 3. 交差検証と評価
-```powershell
-# crossvalidation.ipynb を開いて実行
-# 5-fold GroupKFoldによる評価と比較表の生成
+### 解釈
+
+- **Eyelid**: Method1が最も高精度（直接セグメンテーション）
+- **Iris**: Method3が最も高精度（領域ベース + RANSAC楕円フィッティング）
+- **Pupil**: Method3が最も高精度（小領域でも安定）
+
+---
+
+## 🔧 トラブルシューティング
+
+### GPUメモリ不足
+
+バッチサイズを減らしてください：
+
+```python
+BATCH_SIZE = 8  # デフォルト: 16
 ```
 
-## データ仕様
+### CUDA out of memory
 
-- **画像サイズ**: 640×640ピクセル（RGB）
-- **アノテーション**: CVAT XML形式
-  - 眼瞼・涙丘: ポリゴン形式（セグメンテーション）
-  - 虹彩・瞳孔: 回転バウンディングボックス（OBB）
-- **患者ID抽出**: ファイル名のベースネーム先頭の整数（例: `1-2014...jpg` → patient_id=1）
-- **使用データ**: CVAT image id 0-1999 のフレームのみ
+カラム26のメモリクリアセルを実行：
 
-## 主な評価指標
+```python
+torch.cuda.empty_cache()
+gc.collect()
+```
 
-- **Dice係数**（クラス別）
-- **推論速度**（ms/画像）
-- **5-fold交差検証**による統計的比較
+### モデルが見つからない
 
-## 必要なPythonパッケージ
+`LOAD_PRETRAINED = True`の場合、`model/`ディレクトリに`.pth`ファイルが必要です。
+学習していない場合は、先に学習フラグ（`TRAIN_METHOD*`）をTrueにしてカラム8を実行してください。
 
-主要なパッケージ:
-- PyTorch 2.9.0
-- TorchVision 0.24.0
-- NumPy 2.3.4
-- Jupyter
+### XMLファイルが見つからない
 
-詳細は `requirements.txt` を参照してください。
+`Images/`ディレクトリに以下のファイルがあることを確認：
+- `eyelid_caruncle_seg_0-2000.xml`
+- `obb_iris_pupil_1-3000.xml`
 
-## 注意事項
+---
 
-- **このプロジェクトはGPU必須です**：train.ipynbの冒頭でGPUの確認を行い、利用できない場合はエラーを出力します
-- 現在の環境：NVIDIA GeForce RTX 3080 Ti Laptop GPU（CUDA 12.4）
-- PyTorch 2.6.0+cu124（GPU版）を使用
-- データは `Images/images/` ディレクトリに配置してください
-- アノテーションファイルはCVAT形式のXMLです
+## 📝 ライセンス
 
-## ライセンス
+このプロジェクトは研究目的で使用されます。
 
-（プロジェクト固有のライセンス情報を記載してください）
+## 🤝 貢献
 
+バグ報告や機能リクエストは、GitHubのIssueでお願いします。
+
+---
+
+**最終更新:** 2025年11月3日

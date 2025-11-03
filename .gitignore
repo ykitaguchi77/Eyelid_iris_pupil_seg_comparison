@@ -1,3 +1,8 @@
 ﻿model/
 Images/
 venv/ 
+image_metadata.csv
+fold_indices.json
+patient_list.json
+__pycache__/
+
