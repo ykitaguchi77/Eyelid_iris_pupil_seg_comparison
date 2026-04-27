@@ -1,0 +1,16 @@
+# YOLO11データセット設定 (Fold 4)
+path: c:\Users\CorneAI\Eyelid_Iris_pupil_seg_comparison\Ablation_YOLO
+train: c:\Users\CorneAI\Eyelid_Iris_pupil_seg_comparison\Ablation_YOLO\yolo11_train_fold4.txt
+val: c:\Users\CorneAI\Eyelid_Iris_pupil_seg_comparison\Ablation_YOLO\yolo11_val_fold4.txt
+
+# クラス名
+names:
+  0: background
+  1: conj
+  2: iris_vis
+  3: iris_occ
+  4: pupil_vis
+  5: pupil_occ
+
+# クラス数
+nc: 6

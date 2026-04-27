@@ -1,0 +1,16 @@
+# YOLO11データセット設定 (3000mai)
+path: C:\Users\CorneAI\Eyelid_Iris_pupil_seg_comparison\YOLO11n-seg_3000mai
+train: C:\Users\CorneAI\Eyelid_Iris_pupil_seg_comparison\YOLO11n-seg_3000mai\yolo11_train_3000mai.txt
+val: C:\Users\CorneAI\Eyelid_Iris_pupil_seg_comparison\YOLO11n-seg_3000mai\yolo11_val_3000mai.txt
+
+# クラス名
+names:
+  0: conj
+  1: caruncle
+  2: iris_vis
+  3: iris_occ
+  4: pupil_vis
+  5: pupil_occ
+
+# クラス数
+nc: 6

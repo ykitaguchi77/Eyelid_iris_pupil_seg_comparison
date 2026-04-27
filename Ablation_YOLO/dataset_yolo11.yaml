@@ -1,0 +1,16 @@
+# 6クラス眼部セグメンテーションデータセット
+path: .  # プロジェクトルート
+train: Images/images  # 画像ディレクトリ（fold分割は別途管理）
+val: Images/images    # 画像ディレクトリ（fold分割は別途管理）
+
+# クラス名
+names:
+  0: background
+  1: conj
+  2: iris_vis
+  3: iris_occ
+  4: pupil_vis
+  5: pupil_occ
+
+# クラス数（backgroundを含む）
+nc: 6

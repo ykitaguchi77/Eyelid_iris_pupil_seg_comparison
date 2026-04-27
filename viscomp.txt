@@ -1,0 +1,217 @@
+import matplotlib.pyplot as plt
+from PIL import Image
+
+def denorm_img(img_tensor):
+    """正規化された画像テンソルを可視化用に変換"""
+    mean = torch.tensor([0.485, 0.456, 0.406])[:, None, None]
+    std = torch.tensor([0.229, 0.224, 0.225])[:, None, None]
+    img = img_tensor * std + mean
+    img = torch.clamp(img, 0, 1)
+    return img.permute(1, 2, 0).cpu().numpy()
+
+def visualize_comparison(segformer_model, method3_model, sample_ds, num_samples=5, device='cuda'):
+    """
+    SegFormerとMethod3の予測結果を比較可視化
+    
+    Args:
+        segformer_model: SegFormerモデル（学習済み）
+        method3_model: Method3モデル（U-Net、学習済み）
+        sample_ds: サンプル用データセット
+        num_samples: 表示するサンプル数
+        device: デバイス
+    """
+    segformer_model.eval()
+    method3_model.eval()
+    
+    # ランダムにサンプルを選択
+    indices = np.random.choice(len(sample_ds), min(num_samples, len(sample_ds)), replace=False)
+    
+    fig, axes = plt.subplots(num_samples, 5, figsize=(20, 4*num_samples))
+    if num_samples == 1:
+        axes = axes.reshape(1, -1)
+    
+    for row_idx, idx in enumerate(indices):
+        sample = sample_ds[idx]
+        
+        # 画像の準備
+        img_vis = denorm_img(sample['pixel_values'])
+        
+        # GTマスク
+        gt_lid = sample['mask_lid'].numpy()
+        gt_iris = sample['mask_iris'].numpy()
+        gt_pupil = sample['mask_pupil'].numpy()
+        
+        # SegFormer推論
+        with torch.no_grad():
+            segformer_input = sample['pixel_values'].unsqueeze(0).to(device)
+            segformer_outputs = segformer_model(pixel_values=segformer_input)
+            segformer_logits = segformer_outputs.logits  # (1, 6, H, W)
+            
+            # 512x512にアップサンプリング（必要に応じて）
+            if segformer_logits.shape[-2:] != (IMAGE_HEIGHT, IMAGE_WIDTH):
+                segformer_logits = F.interpolate(
+                    segformer_logits,
+                    size=(IMAGE_HEIGHT, IMAGE_WIDTH),
+                    mode='bilinear',
+                    align_corners=False
+                )
+            
+            segformer_prob = F.softmax(segformer_logits, dim=1).cpu()
+            
+            # 6クラスから各マスクを抽出
+            segformer_lid = (segformer_prob[0, 1, :, :] + segformer_prob[0, 2, :, :] + segformer_prob[0, 4, :, :]).numpy()
+            segformer_lid_bin = (segformer_lid > 0.5).astype(np.uint8) * 255
+            segformer_iris = (segformer_prob[0, 2, :, :] + segformer_prob[0, 3, :, :]).numpy()
+            segformer_iris_bin = (segformer_iris > 0.5).astype(np.uint8) * 255
+            segformer_pupil = (segformer_prob[0, 4, :, :] + segformer_prob[0, 5, :, :]).numpy()
+            segformer_pupil_bin = (segformer_pupil > 0.5).astype(np.uint8) * 255
+        
+        # Method3推論（U-Net）
+        with torch.no_grad():
+            # Method3は通常の画像テンソルを使用（SegFormerのprocessorを通していない）
+            # そのため、元の画像を読み込んで正規化する必要がある
+            img_path = IMAGES_DIR / sample['filename']
+            img_cv = cv2.imread(str(img_path))
+            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+            img_cv = cv2.resize(img_cv, (IMAGE_WIDTH, IMAGE_HEIGHT), interpolation=cv2.INTER_LINEAR)
+            img_t = torch.from_numpy(img_cv).float().permute(2, 0, 1) / 255.0
+            mean = torch.tensor([0.485, 0.456, 0.406])[:, None, None]
+            std = torch.tensor([0.229, 0.224, 0.225])[:, None, None]
+            img_t = (img_t - mean) / std
+            img_t = img_t.unsqueeze(0).to(device)
+            
+            method3_outputs = method3_model(img_t)
+            method3_logits = method3_outputs['five_class_seg']  # (1, 6, H, W)
+            method3_prob = F.softmax(method3_logits, dim=1).cpu()
+            
+            # 6クラスから各マスクを抽出
+            method3_lid = (method3_prob[0, 1, :, :] + method3_prob[0, 2, :, :] + method3_prob[0, 4, :, :]).numpy()
+            method3_lid_bin = (method3_lid > 0.5).astype(np.uint8) * 255
+            method3_iris = (method3_prob[0, 2, :, :] + method3_prob[0, 3, :, :]).numpy()
+            method3_iris_bin = (method3_iris > 0.5).astype(np.uint8) * 255
+            method3_pupil = (method3_prob[0, 4, :, :] + method3_prob[0, 5, :, :]).numpy()
+            method3_pupil_bin = (method3_pupil > 0.5).astype(np.uint8) * 255
+        
+        # 可視化
+        # 列1: 元画像
+        axes[row_idx, 0].imshow(img_vis)
+        axes[row_idx, 0].set_title('Original Image', fontsize=12)
+        axes[row_idx, 0].axis('off')
+        
+        # 列2: GT Eyelid
+        axes[row_idx, 1].imshow(img_vis)
+        axes[row_idx, 1].imshow(gt_lid, alpha=0.5, cmap='Reds')
+        axes[row_idx, 1].set_title('GT Eyelid', fontsize=12)
+        axes[row_idx, 1].axis('off')
+        
+        # 列3: SegFormer Eyelid
+        axes[row_idx, 2].imshow(img_vis)
+        axes[row_idx, 2].imshow(segformer_lid_bin, alpha=0.5, cmap='Reds')
+        axes[row_idx, 2].set_title('SegFormer Eyelid', fontsize=12)
+        axes[row_idx, 2].axis('off')
+        
+        # 列4: Method3 Eyelid
+        axes[row_idx, 3].imshow(img_vis)
+        axes[row_idx, 3].imshow(method3_lid_bin, alpha=0.5, cmap='Reds')
+        axes[row_idx, 3].set_title('Method3 Eyelid', fontsize=12)
+        axes[row_idx, 3].axis('off')
+        
+        # 列5: オーバーレイ比較（SegFormer vs Method3）
+        axes[row_idx, 4].imshow(img_vis)
+        # SegFormerを赤、Method3を青で表示
+        overlay = np.zeros((IMAGE_HEIGHT, IMAGE_WIDTH, 3), dtype=np.uint8)
+        overlay[segformer_lid_bin > 0] = [255, 0, 0]  # 赤
+        overlay[method3_lid_bin > 0] = [0, 0, 255]  # 青
+        # 両方に含まれる部分はマゼンタ
+        overlay[(segformer_lid_bin > 0) & (method3_lid_bin > 0)] = [255, 0, 255]
+        axes[row_idx, 4].imshow(overlay, alpha=0.5)
+        axes[row_idx, 4].set_title('Overlay (Red=SegFormer, Blue=Method3)', fontsize=12)
+        axes[row_idx, 4].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+    
+    # IrisとPupilも同様に表示
+    fig2, axes2 = plt.subplots(num_samples, 5, figsize=(20, 4*num_samples))
+    if num_samples == 1:
+        axes2 = axes2.reshape(1, -1)
+    
+    for row_idx, idx in enumerate(indices):
+        sample = sample_ds[idx]
+        img_vis = denorm_img(sample['pixel_values'])
+        gt_iris = sample['mask_iris'].numpy()
+        gt_pupil = sample['mask_pupil'].numpy()
+        
+        # SegFormer推論（再計算）
+        with torch.no_grad():
+            segformer_input = sample['pixel_values'].unsqueeze(0).to(device)
+            segformer_outputs = segformer_model(pixel_values=segformer_input)
+            segformer_logits = segformer_outputs.logits
+            
+            # 512x512にアップサンプリング（必要に応じて）
+            if segformer_logits.shape[-2:] != (IMAGE_HEIGHT, IMAGE_WIDTH):
+                segformer_logits = F.interpolate(
+                    segformer_logits,
+                    size=(IMAGE_HEIGHT, IMAGE_WIDTH),
+                    mode='bilinear',
+                    align_corners=False
+                )
+            
+            segformer_prob = F.softmax(segformer_logits, dim=1).cpu()
+            segformer_iris = (segformer_prob[0, 2, :, :] + segformer_prob[0, 3, :, :]).numpy()
+            segformer_iris_bin = (segformer_iris > 0.5).astype(np.uint8) * 255
+            segformer_pupil = (segformer_prob[0, 4, :, :] + segformer_prob[0, 5, :, :]).numpy()
+            segformer_pupil_bin = (segformer_pupil > 0.5).astype(np.uint8) * 255
+        
+        # Method3推論（再計算）
+        with torch.no_grad():
+            img_path = IMAGES_DIR / sample['filename']
+            img_cv = cv2.imread(str(img_path))
+            img_cv = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+            img_cv = cv2.resize(img_cv, (IMAGE_WIDTH, IMAGE_HEIGHT), interpolation=cv2.INTER_LINEAR)
+            img_t = torch.from_numpy(img_cv).float().permute(2, 0, 1) / 255.0
+            mean = torch.tensor([0.485, 0.456, 0.406])[:, None, None]
+            std = torch.tensor([0.229, 0.224, 0.225])[:, None, None]
+            img_t = (img_t - mean) / std
+            img_t = img_t.unsqueeze(0).to(device)
+            
+            method3_outputs = method3_model(img_t)
+            method3_logits = method3_outputs['five_class_seg']
+            method3_prob = F.softmax(method3_logits, dim=1).cpu()
+            method3_iris = (method3_prob[0, 2, :, :] + method3_prob[0, 3, :, :]).numpy()
+            method3_iris_bin = (method3_iris > 0.5).astype(np.uint8) * 255
+            method3_pupil = (method3_prob[0, 4, :, :] + method3_prob[0, 5, :, :]).numpy()
+            method3_pupil_bin = (method3_pupil > 0.5).astype(np.uint8) * 255
+        
+        # Iris可視化
+        axes2[row_idx, 0].imshow(img_vis)
+        axes2[row_idx, 0].imshow(gt_iris, alpha=0.5, cmap='Greens')
+        axes2[row_idx, 0].set_title('GT Iris', fontsize=12)
+        axes2[row_idx, 0].axis('off')
+        
+        axes2[row_idx, 1].imshow(img_vis)
+        axes2[row_idx, 1].imshow(segformer_iris_bin, alpha=0.5, cmap='Greens')
+        axes2[row_idx, 1].set_title('SegFormer Iris', fontsize=12)
+        axes2[row_idx, 1].axis('off')
+        
+        axes2[row_idx, 2].imshow(img_vis)
+        axes2[row_idx, 2].imshow(method3_iris_bin, alpha=0.5, cmap='Greens')
+        axes2[row_idx, 2].set_title('Method3 Iris', fontsize=12)
+        axes2[row_idx, 2].axis('off')
+        
+        # Pupil可視化
+        axes2[row_idx, 3].imshow(img_vis)
+        axes2[row_idx, 3].imshow(gt_pupil, alpha=0.5, cmap='Blues')
+        axes2[row_idx, 3].imshow(segformer_pupil_bin, alpha=0.5, cmap='Blues')
+        axes2[row_idx, 3].set_title('GT/SegFormer Pupil', fontsize=12)
+        axes2[row_idx, 3].axis('off')
+        
+        axes2[row_idx, 4].imshow(img_vis)
+        axes2[row_idx, 4].imshow(method3_pupil_bin, alpha=0.5, cmap='Blues')
+        axes2[row_idx, 4].set_title('Method3 Pupil', fontsize=12)
+        axes2[row_idx, 4].axis('off')
+    
+    plt.tight_layout()
+    plt.show()
+
+print("✓ 可視化関数定義完了")

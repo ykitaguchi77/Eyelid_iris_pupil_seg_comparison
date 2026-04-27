@@ -1,28 +1,131 @@
-﻿# モデルファイル（大容量）
+﻿# ===== Python =====
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# ===== Jupyter Notebook =====
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+
+# ===== Data & Models (大容量ファイル) =====
+# モデルファイル
 model/
+*.pt
+*.pth
+*.ckpt
+*.weights
 
 # 画像データ（大容量）
 Images/
+# 注: XMLアノテーションファイルを含めたい場合は、以下をコメントアウトして
+# Images/*.xml を除外リストから外してください
 
 # キャッシュ・進捗ファイル
 cache/
 results/
+*.cache
 
-# Python環境
-venv/
-__pycache__/
-
-# 生成ファイル
+# ===== Generated Files =====
+# メタデータ・インデックスファイル
 image_metadata.csv
 fold_indices.json
 patient_list.json
 
-# Jupyter Notebook checkpoints
-.ipynb_checkpoints/
+# YOLOデータセット生成ファイル（YAMLファイルは含める、テキストリストは除外）
+Ablation_YOLO/*.txt
+YOLO11*/yolo11_train_*.txt
+YOLO11*/yolo11_val_*.txt
 
-# その他
-*.pyc
-*.pyo
-*.pyd
+# ===== Ablation: RF-DETR =====
+# データセット（大容量画像 + アノテーション）
+Ablation_RFDETR/coco_dataset/
+# 学習出力（ログ、メトリクスプロット、結果）
+Ablation_RFDETR/runs/
+
+# ===== Ablation: YOLO11 学習出力 =====
+YOLO11l-seg_*/yolo11l-seg_*/
+YOLO11n-seg_*/yolo11n-seg_*/
+
+# ===== Periocular detection サンプル画像 =====
+Periocular_detection/sample_image*
+
+# ===== IDE & Editor =====
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm / IntelliJ IDEA
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ===== OS =====
+# macOS
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ===== Logs & Temporary Files =====
+*.log
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# ===== Environment Variables =====
+.env
+.env.local
+.env.*.local
+
+# ===== Miscellaneous =====
+# 一時的なチェックファイル
+*.check
+iris_occ_check.png

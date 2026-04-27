@@ -11,6 +11,7 @@ CVAT XMLアノテーションから学習用ラベルを生成し、U-Netベー�
 - [データ前処理（process_data.ipynb）](#データ前処理process_dataipynb)
 - [モデル学習（train.ipynb）](#モデル学習trainipynb)
 - [5-Fold Cross-Validation（crossvalidation.ipynb）](#5-fold-cross-validationcrossvalidationipynb)
+- [Ablation Study（ablation_study.ipynb）](#ablation-studyablation_studyipynb)
 - [ディレクトリ構造](#ディレクトリ構造)
 - [評価指標](#評価指標)
 
@@ -59,6 +60,7 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # 必要なライブラリのインストール
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 pip install opencv-python numpy pandas scikit-learn scikit-image matplotlib pillow tqdm
+pip install transformers  # SegFormer使用時（ablation_study.ipynb用）
 ```
 
 ---
@@ -419,6 +421,133 @@ Fold 0 / 4
 
 ---
 
+## 🔬 Ablation Study（ablation_study.ipynb）
+
+### 概要
+
+Method3（U-Net）と**SegFormer**（Vision Transformerベースのセマンティックセグメンテーションモデル）を比較するためのAblation Studyです。
+
+**目的:**
+- Method3（U-Net + VGG16）の性能とSegFormerの性能を比較
+- 最新のTransformerベースのセグメンテーションモデルの適用可能性を検証
+
+### SegFormerについて
+
+- **開発元**: NVIDIA Research
+- **アーキテクチャ**: Vision Transformer (ViT) ベース
+- **特徴**: 軽量かつ高精度なセマンティックセグメンテーション
+- **モデルサイズ**: SegFormer-B2（27.4M params、推奨サイズ）
+- **参考**: https://github.com/NVlabs/SegFormer
+
+### 設定
+
+```python
+IMAGE_HEIGHT = 512
+IMAGE_WIDTH  = 512
+BATCH_SIZE   = 8   # SegFormerはメモリ使用量が多いため少し小さく
+NUM_EPOCHS   = 300
+LEARNING_RATE = 6e-5  # SegFormer推奨学習率（Transformerは低め）
+WEIGHT_DECAY  = 1e-4
+EARLY_STOP_PATIENCE = 30
+NUM_FOLDS = 5
+NUM_CLASSES = 6  # 6クラス分類（Method3と同じ）
+NUM_WORKERS = 0  # Windows対応
+```
+
+**モデル選択:**
+- デフォルト: `nvidia/segformer-b2-finetuned-ade-512-512`（バランス型、推奨）
+- その他の選択肢:
+  - `nvidia/segformer-b0-finetuned-ade-512-512`（軽量版、3.7M params）
+  - `nvidia/segformer-b5-finetuned-ade-512-512`（最高精度、84.7M params）
+
+### 実行方法
+
+#### 初回実行
+
+```bash
+jupyter notebook ablation_study.ipynb
+```
+
+1. **セル1-2**: GPUチェック・基本設定
+2. **セル3**: データセット定義（SegFormer用ImageProcessorを使用）
+3. **セル4**: SegFormerモデル定義（6クラス用にカスタマイズ）
+4. **セル5**: 損失関数定義（Cross Entropy + Dice Loss）
+5. **セル6**: 学習ループ定義
+6. **セル7**: 評価関数定義（Method3と同じ評価ロジック）
+7. **セル8**: 進捗確認（オプション）
+8. **セル9**: 5-Fold CV実行（Resume機能対応）
+9. **セル10以降**: 結果集計・Method3との比較・可視化
+
+#### Resume機能
+
+`crossvalidation.ipynb`と同様に、中断しても続きから再開可能です：
+
+- 進捗は `cache/ablation_progress.json` に保存
+- 完了済みFoldは自動スキップ
+- 中断されたFoldは最初から再学習
+
+#### 進捗リセット
+
+1. **セル8**で `RESET_PROGRESS = True` に変更
+2. セル8を実行（進捗リセット）
+3. Run All
+
+### 特徴
+
+- ✅ **Resume機能**: 中断しても続きから再開可能
+- 📊 **Method3との自動比較**: 結果集計時にMethod3の最新結果と自動比較
+- 🎨 **可視化機能**: Method3とSegFormerの予測を並列比較
+- 📈 **詳細なログ**: JSON形式で実験条件・結果を保存
+
+### 出力ファイル
+
+**モデル:**
+```
+model/ablation_study/
+  └── segformer_fold{0-4}_best.pth  # SegFormer × 5 folds
+```
+
+**評価結果:**
+```
+results/
+  ├── ablation_segformer_train_*.csv      # 学習結果（fold別）
+  ├── ablation_segformer_eval_*.csv       # 評価結果（fold別）
+  ├── ablation_segformer_summary_*.csv    # 5-Fold CVサマリー
+  └── ablation_experiment_log_*.json      # 実験ログ（条件・結果）
+```
+
+**進捗管理:**
+```
+cache/
+  └── ablation_progress.json              # 進捗状態（Resume用）
+```
+
+### Method3との比較例
+
+```
+【SegFormer vs Method3比較】
+           Method  Eyelid    Iris   Pupil   Mean
+        SegFormer  0.9863  0.8692  0.9095  0.9217
+         Method3   0.9854  0.9705  0.9576  0.9712  ← Best!
+
+結論: Method3の方が高精度（特にIris/Pupil）
+```
+
+### 実行時間の目安
+
+- **1 Fold**: 約4-6時間（GPU: RTX 3080 Ti、300 epochs、early stopping有効時）
+- **5-Fold CV**: 約20-30時間（全Fold完了まで）
+
+### 必要なライブラリ
+
+SegFormerを使用するため、以下の追加ライブラリが必要です：
+
+```bash
+pip install transformers
+```
+
+---
+
 ## 📁 ディレクトリ構造
 
 ```
@@ -441,21 +570,29 @@ Eyelid_Iris_pupil_seg_comparison/
 │   ├── method1_fold0_best.pth          # train.ipynb用（50 epochs）
 │   ├── method2_fold0_best.pth
 │   ├── method3_fold0_best.pth
-│   └── cv_300ep/                       # crossvalidation.ipynb用（300 epochs）
-│       ├── method1_fold{0-4}_best.pth
-│       ├── method2_fold{0-4}_best.pth
-│       └── method3_fold{0-4}_best.pth
+│   ├── cv_300ep/                       # crossvalidation.ipynb用（300 epochs）
+│   │   ├── method1_fold{0-4}_best.pth
+│   │   ├── method2_fold{0-4}_best.pth
+│   │   └── method3_fold{0-4}_best.pth
+│   └── ablation_study/                 # ablation_study.ipynb用（300 epochs）
+│       └── segformer_fold{0-4}_best.pth
 ├── cache/                               # キャッシュ・進捗管理
 │   ├── cv_progress.json                # CV進捗（Resume用）
+│   ├── ablation_progress.json          # Ablation Study進捗（Resume用）
 │   └── ellipse_params/
 │       └── ellipse_params.npz          # 楕円パラメータキャッシュ
 ├── results/                             # 評価結果（CSV）
 │   ├── cv_train_method{1,2,3}_*.csv
 │   ├── cv_eval_method{1,2,3}_*.csv
-│   └── cv_comparison_*.csv
+│   ├── cv_comparison_*.csv
+│   ├── ablation_segformer_train_*.csv
+│   ├── ablation_segformer_eval_*.csv
+│   ├── ablation_segformer_summary_*.csv
+│   └── ablation_experiment_log_*.json
 ├── process_data.ipynb                   # データ前処理スクリプト
 ├── train.ipynb                          # 学習・評価スクリプト（50 epochs）
 ├── crossvalidation.ipynb                # 5-Fold CV（300 epochs, Resume対応）
+├── ablation_study.ipynb                 # Ablation Study: SegFormer vs Method3
 ├── fold_indices.json                    # 5-fold分割情報
 ├── image_metadata.csv                   # 画像メタデータ
 ├── patient_list.json                    # 患者IDリスト
@@ -557,6 +694,14 @@ jupyter notebook crossvalidation.ipynb  # Run All
 jupyter notebook crossvalidation.ipynb  # Run All
 # → 3手法×5-fold = 15モデルを学習・評価
 # → 統計的に有意な性能比較
+```
+
+### Ablation Study実行時
+```bash
+# SegFormerとMethod3を比較
+jupyter notebook ablation_study.ipynb  # Run All
+# → SegFormer × 5-fold = 5モデルを学習・評価
+# → Method3との性能比較
 ```
 
 ---

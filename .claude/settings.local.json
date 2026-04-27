@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import json; nb=json.load(open(r''C:\\Users\\CorneAI\\Eyelid_Iris_pupil_seg_comparison\\ablation_yolo11.ipynb'', encoding=''utf-8'')); cells=[c for c in nb[''cells''] if ''visualize_margin_detection_detailed'' in str(c.get(''source'', ''''))]; print(''Found cell, ID:'', cells[0].get(''id'', ''no id field'') if cells else ''Cell not found'')\")",
+      "Bash(python:*)",
+      "Read(//c/Users/CorneAI/Downloads/**)",
+      "WebSearch",
+      "WebFetch(domain:docs.ultralytics.com)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd SegFormer-B0 amodal training notebook with blur augmentation\n\nNew notebook for low-quality image robustness training:\n- RandomResizedCrop \\(scale 80%-100%, ratio 0.9-1.1, p=0.5\\)\n- Rotation \\(+/- 180 degrees\\)\n- Blur augmentation \\(Blur, MotionBlur, GaussianBlur, ImageCompression, Downscale\\)\n- Uses unified Albumentations pipeline for image and mask augmentation\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(codex:*)",
+      "Bash(findstr:*)",
+      "Bash(cmd /c \"venv\\\\Scripts\\\\python.exe -c \"\"import numpy; print\\(''numpy:'', numpy.__version__\\)\"\"\")",
+      "Bash(cmd /c \"venv\\\\Scripts\\\\pip show opencv-python\")",
+      "Bash(C:/Users/CorneAI/Eyelid_Iris_pupil_seg_comparison/venv/Scripts/python.exe -c \"import numpy; print\\(''numpy:'', numpy.__version__\\)\")",
+      "Bash(C:/Users/CorneAI/Eyelid_Iris_pupil_seg_comparison/venv/Scripts/pip.exe show:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
