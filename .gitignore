@@ -79,6 +79,27 @@ YOLO11n-seg_*/yolo11n-seg_*/
 # ===== Periocular detection サンプル画像 =====
 Periocular_detection/sample_image*
 
+# ===== Local-only Claude Code settings =====
+.claude/settings.local.json
+
+# ===== Article (manuscript drafts / figures / paper-specific scripts) =====
+Article/
+
+# ===== Experimental records (lab notebook) =====
+Experimental_record/
+
+# ===== Notebook backups & analysis dumps =====
+*.backup_*
+*_dump.txt
+extracted_*.txt
+analysis_nb_structure.txt
+
+# ===== Generated figures =====
+figures/
+
+# ===== Pipeline outputs (generated JSON / intermediate artifacts) =====
+scripts/out/
+
 # ===== IDE & Editor =====
 # VSCode
 .vscode/
